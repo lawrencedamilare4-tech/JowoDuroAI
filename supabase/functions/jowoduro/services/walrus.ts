@@ -11,27 +11,26 @@ export function initializeWalrus(chatId: string) {
   });
 }
 
-export async function fetchUserContext(memwal: any, userText: string, retryLimit = 10): Promise<string> {
+// Start with a much smaller initial limit of 3 instead of 10
+export async function fetchUserContext(memwal: any, userText: string, retryLimit = 3): Promise<string> {
   console.log(`[WALRUS] Recalling memory (Limit: ${retryLimit})...`);
   
-  const expandedQuery = `${userText} user profile name past triggers coping strategies history`;
+  // ADDED: "sobriety streak days clean relapse milestones" to force progress tracking
+  const expandedQuery = `${userText} user profile name past triggers coping strategies history sobriety streak days clean relapse milestones`;
   
   try {
-    // Try to fetch and decrypt the memories
     const recallResult = await memwal.recall(expandedQuery, retryLimit);
     return recallResult.results.map((r: any) => r.text).join(" | ");
     
   } catch (error) {
-    // If the relayer times out during seal_decrypt, retry once with a much smaller load
-    if (error.message?.includes("504") && retryLimit > 3) {
-        console.warn("[WALRUS] Decryption timed out. Retrying with a smaller limit of 3...");
-        return await fetchUserContext(memwal, userText, 3);
+    if (error.message?.includes("504") && retryLimit > 1) {
+        console.warn("[WALRUS] Decryption timed out. Retrying with absolute minimum limit of 1...");
+        return await fetchUserContext(memwal, userText, 1);
     }
-    
-    // If it fails again, throw the error to be caught by index.ts
     throw error; 
   }
 }
+
 export async function saveMemoryBackground(memwal: any, factToSave: string) {
     console.log(`[WALRUS] Queuing memory save...`);
     

@@ -18,9 +18,6 @@ serve(async (req) => {
 
     if (!chatId) return new Response("OK");
 
-    // 0. Fire typing indicator instantly (Fire and forget so it never hangs the function)
-    await sendTypingAction(chatId); 
-
     // Handle non-text / non-voice messages gracefully (like stickers or photos)
     if (!userText && !voiceId) {
         await sendMessage(chatId, "I can only understand text and voice notes right now. Please tell me what's on your mind.");
@@ -30,6 +27,8 @@ serve(async (req) => {
     // 1. SAFE Voice Note Handling
     if (voiceId && !userText) {
         try {
+            // Send typing indicator early here since Whisper transcription takes a moment
+            await sendTypingAction(chatId).catch(console.error);
             console.log(`[VOICE] Received audio file: ${voiceId}`);
             const audioUrl = await getVoiceFileUrl(voiceId);
             userText = await transcribeAudio(audioUrl); 
@@ -44,7 +43,6 @@ serve(async (req) => {
     console.log(`[PROCESSING] Message from ${chatId}: "${userText}"`);
 
     // 2. THE EMERGENCY INTERCEPTOR
-    // If they press the button, we secretly rewrite their prompt to force Groq into crisis mode.
     if (userText === "🚨 I'm about to relapse") {
         userText = "URGENT CRISIS: I am about to relapse right this exact second. Drop all pleasantries. Give me strict, immediate, and actionable steps to physically stop me from relapsing right now. Use my past context.";
     }
@@ -52,6 +50,7 @@ serve(async (req) => {
     // 3. Clinical Report Handling
     if (userText === "/report" || userText === "📊 Generate Clinical Report") {
         try {
+            await sendTypingAction(chatId).catch(console.error);
             const memwal = initializeWalrus(chatId);
             const userContext = await fetchUserContext(memwal, "everything");
             const report = await generateClinicalReport(userContext);
@@ -63,16 +62,18 @@ serve(async (req) => {
         return new Response("OK", { status: 200 });
     }
 
-    // 4. SAFE Memory Fetching
+    // 4. PARALLEL Network Requests (Typing Indicator + Walrus Memory Fetch)
+    console.log("[SYSTEM] Starting parallel network requests...");
     const memwal = initializeWalrus(chatId);
-    let userContext = "";
-    try {
-        userContext = await fetchUserContext(memwal, userText); 
-    } catch (error) {
-        console.error("[WALRUS ERROR] Failed to fetch memory. Proceeding without context.");
-        // We continue anyway so the user doesn't get ignored!
-        console.error("[WALRUS ERROR] Failed to fetch memory. EXACT ERROR:", error.message || error);
-    }
+    
+    // Promise.all runs both tasks concurrently, shaving seconds off the response time
+    const [_, userContext] = await Promise.all([
+        sendTypingAction(chatId).catch(console.error),
+        fetchUserContext(memwal, userText).catch((error) => {
+            console.error("[WALRUS ERROR] Proceeding without context:", error.message || error);
+            return ""; 
+        })
+    ]);
 
     // 5. SAFE AI Generation
     let aiResponse = "";
@@ -80,7 +81,6 @@ serve(async (req) => {
         aiResponse = await generateAccountabilityResponse(userText, userContext);
     } catch (error) {
         console.error("[GROQ ERROR]", error);
-        // If Groq goes down or rate-limits us, give them a hardcoded lifeline so they are never abandoned.
         aiResponse = "I am experiencing a brief technical glitch, but PLEASE stay strong. Do not act on your urge. Step away from whatever is triggering you right now. I am in your corner.";
     }
     
@@ -96,7 +96,7 @@ serve(async (req) => {
     // 7. Respond to user
     await sendMessage(chatId, textToSend);
 
-    // 8. SAFE Background saving
+    // 8. SAFE Background saving (Fire-and-Forget)
     if (factToSave) {
       try {
           await saveMemoryBackground(memwal, factToSave);
