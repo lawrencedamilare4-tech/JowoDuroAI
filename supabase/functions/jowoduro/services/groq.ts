@@ -69,7 +69,6 @@ export async function generateAccountabilityResponse(userText: string, userConte
     ],
     model: "openai/gpt-oss-20b", 
     temperature: 0.5, 
-    max_tokens: 200, // Severely restricted to prevent long essays, but enough for the memory tag
   });
 
   return chatCompletion.choices[0].message.content || "";
