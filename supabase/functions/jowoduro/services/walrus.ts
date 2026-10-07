@@ -13,21 +13,32 @@ export function initializeWalrus(chatId: string) {
 
 // Start with a much smaller initial limit of 3 instead of 10
 export async function fetchUserContext(memwal: any, userText: string, retryLimit = 3): Promise<string> {
-  console.log(`[WALRUS] Recalling memory (Limit: ${retryLimit})...`);
-  
-  // ADDED: "sobriety streak days clean relapse milestones" to force progress tracking
-  const expandedQuery = `${userText} user profile name past triggers coping strategies history sobriety streak days clean relapse milestones`;
+  console.log(`[WALRUS] Recalling memory (Total Limit: ${retryLimit})...`);
   
   try {
-    const recallResult = await memwal.recall(expandedQuery, retryLimit);
-    return recallResult.results.map((r: any) => r.text).join(" | ");
+    const identityLimit = 1;
+    const triggerLimit = Math.max(1, retryLimit - 1);
+
+    // Natural-language queries yield substantially higher cosine similarity
+    const [identityResult, triggerResult] = await Promise.all([
+            memwal.recall("The user's real name is, user provided name, identity", 1),
+            memwal.recall(`${userText} past triggers coping strategies history sobriety streak days clean relapse milestones`, triggerLimit)
+        ]);
+
+    const identityText = identityResult.results.map((r: any) => r.text).join(" | ");
+    const triggerText = triggerResult.results.map((r: any) => r.text).join(" | ");
+    const combinedContext = [identityText, triggerText].filter(Boolean).join(" | ");
+    
+    console.log(`[WALRUS DEBUG CONTEXT]: "${combinedContext}"`);
+    return combinedContext;
     
   } catch (error) {
     if (error.message?.includes("504") && retryLimit > 1) {
-        console.warn("[WALRUS] Decryption timed out. Retrying with absolute minimum limit of 1...");
-        return await fetchUserContext(memwal, userText, 1);
+      console.warn("[WALRUS] Decryption timed out. Retrying with emergency fallback limit of 1...");
+      const emergencyResult = await memwal.recall(`User name and addiction triggers: ${userText}`, 1);
+      return emergencyResult.results.map((r: any) => r.text).join(" | ");
     }
-    throw error; 
+    throw error;
   }
 }
 

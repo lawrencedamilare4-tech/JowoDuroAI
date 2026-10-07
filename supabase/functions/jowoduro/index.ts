@@ -2,8 +2,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { config, validateConfig } from "./config.ts";
 import { initializeWalrus, fetchUserContext, saveMemoryBackground } from "./services/walrus.ts";
-import { generateAccountabilityResponse, transcribeAudio, generateClinicalReport } from "./services/groq.ts";
 import { sendTypingAction, sendMessage, getVoiceFileUrl } from "./services/telegram.ts";
+import { generateAccountabilityResponse, transcribeAudio, generateClinicalReport } from "./services/gemini.ts";
 
 serve(async (req) => {
   if (req.method !== "POST") return new Response("OK");
@@ -75,29 +75,29 @@ serve(async (req) => {
         })
     ]);
 
-    // 5. SAFE AI Generation
-    let aiResponse = "";
+   // 5. SAFE AI Generation & 6. Parse Output
+    let textToSend = "";
+    let factToSave = "";
+    
     try {
-        aiResponse = await generateAccountabilityResponse(userText, userContext);
+        const aiResponse = await generateAccountabilityResponse(userText, userContext);
+        textToSend = aiResponse.textToSend;
+        factToSave = aiResponse.factToSave;
     } catch (error) {
-        console.error("[GROQ ERROR]", error);
-        aiResponse = "I am experiencing a brief technical glitch, but PLEASE stay strong. Do not act on your urge. Step away from whatever is triggering you right now. I am in your corner.";
+        console.error("[GEMINI ERROR]", error);
+        textToSend = "I am experiencing a brief technical glitch, but PLEASE stay strong. Do not act on your urge. Step away from whatever is triggering you right now. I am in your corner.";
     }
     
-    // 6. Parse output for memories
-    let textToSend = aiResponse;
-    let factToSave = "";
-    if (aiResponse.includes("NEW_MEMORY:")) {
-      const split = aiResponse.split("NEW_MEMORY:");
-      textToSend = split[0].trim(); 
-      factToSave = split[1].trim(); 
+    // THE FINAL SAFETY NET: Never send a completely empty string to Telegram
+    if (!textToSend || textToSend.trim() === "") {
+        textToSend = "I am here with you. What is on your mind right now?";
     }
 
     // 7. Respond to user
     await sendMessage(chatId, textToSend);
 
-    // 8. SAFE Background saving (Fire-and-Forget)
-    if (factToSave) {
+    // 8. SAFE Background saving
+    if (factToSave && factToSave.trim() !== "") {
       try {
           await saveMemoryBackground(memwal, factToSave);
       } catch (error) {
